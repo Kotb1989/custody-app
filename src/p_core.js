@@ -10,12 +10,13 @@ const TABS = [
   ["custodies", "العهد", '<rect x="3" y="7" width="18" height="12" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2M3 13h18"/>'],
   ["vouchers", "السندات", '<path d="M6 3h9l4 4v14H6zM14 3v5h5M9 13h7M9 17h5"/>'],
   ["statement", "كشف الحساب", '<path d="M4 4h16v16H4zM4 9h16M9 9v11"/>'],
+  ["costcenters", "مراكز التكلفة", '<path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M12 12l8-4.5M12 12v9M12 12L4 7.5"/>'],
   ["users", "المستخدمون", '<circle cx="9" cy="8" r="3.2"/><path d="M3 20c0-3.3 2.7-5.5 6-5.5s6 2.2 6 5.5M16 5.2a3 3 0 0 1 0 5.6M18 14.8c1.8.6 3 2.3 3 5.2"/>']
 ];
 const PALS = [["teal", "أخضر مزرق", "#0F5257"], ["blue", "أزرق", "#1F4E9C"], ["green", "أخضر", "#2F6B2A"], ["plum", "بنفسجي", "#6B2D7A"], ["rust", "برتقالي محروق", "#A34A1E"]];
 
-const S = { session: null, me: null, profiles: {}, custodies: [], entries: [], loaded: false, err: "", adminExists: true };
-const ui = { tab: "home", period: "month", custody: "all", sheet: null, q: "", kind: "all", from: "", to: "", stmtCustody: "", showVoucher: null, confirm: null, created: null, signup: false, busy: false, prefill: "" };
+const S = { session: null, me: null, profiles: {}, custodies: [], entries: [], costCenters: [], ccMissing: false, loaded: false, err: "", adminExists: true };
+const ui = { tab: "home", period: "month", custody: "all", sheet: null, q: "", kind: "all", from: "", to: "", stmtCustody: "", stmtCC: "", printOpen: false, showVoucher: null, confirm: null, created: null, signup: false, busy: false, prefill: "" };
 let curPal = "teal";
 
 const todayStr = () => { const d = new Date(); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); };
@@ -29,6 +30,8 @@ const isAdminRole = () => roleOf() === "admin";
 const canWrite = () => true;
 const nameOf = id => (id && S.profiles[id] && S.profiles[id].name) || (id ? "مستخدم" : "");
 const custodyById = id => S.custodies.find(c => c.id === id);
+const ccById = id => S.costCenters.find(c => c.id === id);
+const ccName = id => { const c = id && ccById(id); return c ? (c.code ? c.code + " - " : "") + c.name : ""; };
 const visibleCustodies = () => {
   const r = roleOf();
   if (r === "admin") return S.custodies;

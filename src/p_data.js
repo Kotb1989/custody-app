@@ -8,7 +8,8 @@ let sb = null;
 
 const mapP = r => ({ id: r.id, username: r.username, name: r.full_name || r.username, role: r.role, active: r.active !== false });
 const mapC = r => ({ id: r.id, cn: r.cn, name: r.name, holderId: r.holder_id, holderLabel: r.holder_label || "", note: r.note || "" });
-const mapE = r => ({ id: r.id, custodyId: r.custody_id, kind: r.kind, amount: Number(r.amount), date: r.entry_date, category: r.category || "", beneficiary: r.beneficiary || "", desc: r.description || "", seq: r.seq, status: r.status, by: r.created_by, byName: r.created_by_name || "", createdAt: Date.parse(r.created_at) || 0 });
+const mapCC = r => ({ id: r.id, code: r.code || "", name: r.name, active: r.active !== false });
+const mapE = r => ({ ccId: r.cost_center_id || null, id: r.id, custodyId: r.custody_id, kind: r.kind, amount: Number(r.amount), date: r.entry_date, category: r.category || "", beneficiary: r.beneficiary || "", desc: r.description || "", seq: r.seq, status: r.status, by: r.created_by, byName: r.created_by_name || "", createdAt: Date.parse(r.created_at) || 0 });
 
 async function fetchAll(table, col, asc) {
   const out = [];
@@ -25,15 +26,19 @@ async function loadAll() {
   const { data: me, error } = await sb.from("profiles").select("*").eq("id", uid).maybeSingle();
   if (error) throw error;
   S.me = me ? mapP(me) : null;
-  S.custodies = []; S.entries = []; S.profiles = {};
+  S.custodies = []; S.entries = []; S.profiles = {}; S.costCenters = [];
   if (S.me) S.profiles[S.me.id] = S.me;
   if (S.me && S.me.active && S.me.role !== "pending") {
     const admin = S.me.role === "admin";
-    const [cs, es, ps] = await Promise.all([
+    S.ccMissing = false;
+    const ccP = fetchAll("cost_centers", "created_at", true).catch(e => { S.ccMissing = true; return []; });
+    const [cs, es, ps, ccs] = await Promise.all([
       fetchAll("custodies", "cn", true),
       fetchAll("entries", "created_at", false),
-      admin ? fetchAll("profiles", "created_at", true) : Promise.resolve([])
+      admin ? fetchAll("profiles", "created_at", true) : Promise.resolve([]),
+      ccP
     ]);
+    S.costCenters = ccs.map(mapCC);
     S.custodies = cs.map(mapC);
     S.entries = es.map(mapE);
     ps.forEach(p => { S.profiles[p.id] = mapP(p); });

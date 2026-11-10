@@ -28,12 +28,19 @@ function viewHtml() {
   if (!S.me) return `<div class="card empty"><h2>الحساب غير مكتمل</h2><div>لم يُنشأ ملفك الشخصي بعد. تواصل مع المدير.</div></div>`;
   if (!S.me.active) return `<div class="card empty"><h2>الحساب موقوف</h2><div>أوقف المدير هذا الحساب. تواصل معه لإعادة التفعيل.</div></div>`;
   if (S.me.role === "pending") return `<div class="card empty"><h2>حسابك بانتظار التفعيل</h2><div>سيحدد المدير دورك ثم تظهر لك عهدتك هنا.</div></div>`;
-  if (ui.tab === "users" && !isAdminRole()) ui.tab = "home";
-  const body = { home: dashHtml, custodies: custodiesHtml, vouchers: vouchersHtml, statement: statementHtml, users: usersHtml }[ui.tab]();
-  const banner = S.err ? `<div class="note">${esc(S.err)}</div>` : "";
+  if ((ui.tab === "users" || ui.tab === "costcenters") && !isAdminRole()) ui.tab = "home";
+  const body = { home: dashHtml, custodies: custodiesHtml, vouchers: vouchersHtml, statement: statementHtml, costcenters: costCentersHtml, users: usersHtml }[ui.tab]();
+  const banner = (S.err ? `<div class="note">${esc(S.err)}</div>` : "") + (S.ccMissing && isAdminRole() ? `<div class="note">مراكز التكلفة غير مفعّلة بعد في قاعدة البيانات. شغّل الملف supabase/migration_002_cost_centers.sql من SQL Editor ثم حدّث الصفحة.</div>` : "");
   return banner + sheetHtml2() + body;
 }
 function sheetHtml2() {
+  if (ui.sheet && ui.sheet.type === "cc") {
+    const k = ui.sheet.id ? ccById(ui.sheet.id) : null;
+    return `<form class="card form" data-form="cc" data-id="${esc(k ? k.id : "")}"><div class="full title"><h3>${k ? "تعديل مركز التكلفة" : "مركز تكلفة جديد"}</h3><button type="button" class="btn sm" data-act="closesheet">إغلاق</button></div>
+      <div class="field"><label for="k_code">الرمز (اختياري)</label><input id="k_code" name="code" maxlength="20" value="${esc(k ? k.code : "")}" placeholder="مثال: P-101" style="direction:ltr"></div>
+      <div class="field"><label for="k_name">اسم المركز</label><input id="k_name" name="name" required maxlength="80" value="${esc(k ? k.name : "")}" placeholder="مثال: مشروع برج الواحة"></div>
+      <div class="full"><button class="btn primary" type="submit">حفظ</button></div></form>`;
+  }
   if (ui.sheet && ui.sheet.type === "pw") {
     return `<form class="card form" data-form="pw"><div class="full title"><h3>تغيير كلمة المرور</h3><button type="button" class="btn sm" data-act="closesheet">إغلاق</button></div>
       <div class="field"><label for="p_new">كلمة المرور الجديدة</label><input id="p_new" name="password" type="password" required minlength="6" autocomplete="new-password" style="direction:ltr"></div>
@@ -49,11 +56,34 @@ function custodyOptions(sel, onlyWritable) {
   return list.map(c => `<option value="${esc(c.id)}"${c.id === sel ? " selected" : ""}>${esc(c.name)}</option>`).join("");
 }
 
+function costCentersHtml() {
+  const [from, to] = periodRange(ui.period);
+  const vs = S.entries.filter(e => e.kind === "voucher" && e.status !== "cancelled" && e.date >= from && e.date < to);
+  const sum = new Map();
+  vs.forEach(e => { const k = e.ccId || ""; const o = sum.get(k) || { count: 0, total: 0 }; o.count++; o.total += e.amount; sum.set(k, o); });
+  const max = Math.max(1, ...[...sum.values()].map(x => x.total));
+  const per = [["month", "هذا الشهر"], ["q", "٣ أشهر"], ["year", "هذه السنة"], ["all", "الكل"]];
+  const row = (name, x, extra, badge) => `<div class="item"><div class="grow"><div class="t">${esc(name)} ${badge || ""}</div><div class="s"><span class="num">${x.count}</span> سند</div>
+      <div class="bar" style="margin-top:6px"><i style="width:${x.total ? Math.max(3, x.total / max * 100) : 0}%"></i></div></div><div class="amt">${money(x.total)}</div>${extra || ""}</div>`;
+  const un = sum.get("");
+  return `<div class="title"><h2>مراكز التكلفة</h2><button class="btn primary" data-act="sheet" data-type="cc">مركز جديد</button></div>
+  <div class="chips" role="group" aria-label="الفترة">${per.map(([k, l]) => `<button class="chip" data-act="period" data-p="${k}" aria-pressed="${ui.period === k}">${l}</button>`).join("")}</div>
+  <div class="card">${S.costCenters.length || un ? `<div class="list">${S.costCenters.map(k => {
+    const used = S.entries.some(e => e.ccId === k.id);
+    return row(ccName(k.id), sum.get(k.id) || { count: 0, total: 0 },
+      `<button class="btn sm" data-act="sheet" data-type="cc" data-id="${esc(k.id)}">تعديل</button><button class="btn sm" data-act="cctoggle" data-id="${esc(k.id)}">${k.active ? "إيقاف" : "تفعيل"}</button>${used ? "" : `<button class="btn sm danger" data-act="ccdel" data-id="${esc(k.id)}">حذف</button>`}`,
+      k.active ? "" : '<span class="pill warn">موقوف</span>');
+  }).join("")}${un ? row("بدون مركز تكلفة", un) : ""}</div>` : `<div class="empty">لا توجد مراكز تكلفة بعد. أضف مراكز مثل المشاريع أو الأقسام، ثم يختارها أمناء العهد عند تسجيل السند.</div>`}</div>
+  <div class="sub">يحسب التقرير سندات الصرف غير الملغاة في الفترة المختارة. المركز الموقوف لا يظهر في نموذج السند لكن تبقى سنداته القديمة محسوبة.</div>`;
+}
+
 let rendering = false;
 function render() {
   if (rendering) return; rendering = true;
   try {
-    const authEl = $("#authView"), appEl = $("#app");
+    const authEl = $("#authView"), appEl = $("#app"), layer = $("#printLayer");
+    if (ui.printOpen && configured && S.session) { appEl.hidden = true; authEl.hidden = true; layer.hidden = false; return; }
+    layer.hidden = true;
     if (!configured || !S.session) {
       appEl.hidden = true; authEl.hidden = false;
       authEl.innerHTML = configured ? loginHtml() : setupHtml();
@@ -65,7 +95,7 @@ function render() {
     const wr = $("#whoRole"); wr.textContent = r ? ROLES[r] : (S.me ? "موقوف" : "");
     wr.className = "pill" + (r === "admin" || r === "custodian" ? "" : " warn");
     $("#pal").innerHTML = PALS.map(([k, label, col]) => `<button type="button" data-act="pal" data-p="${k}" style="background:${col}" title="${label}" aria-label="${label}" aria-pressed="${curPal === k}"></button>`).join("");
-    $("#nav").innerHTML = TABS.filter(t => t[0] !== "users" || isAdminRole()).map(([k, label, ic]) =>
+    $("#nav").innerHTML = TABS.filter(t => !["users", "costcenters"].includes(t[0]) || isAdminRole()).map(([k, label, ic]) =>
       `<button data-act="tab" data-tab="${k}"${ui.tab === k ? ' aria-current="page"' : ""}><svg viewBox="0 0 24 24">${ic}</svg><span>${label}</span></button>`).join("");
     $("#view").innerHTML = viewHtml();
   } catch (e) {

@@ -42,6 +42,8 @@ function dashHtml() {
   const cats = {}; vs.forEach(e => { const k = e.category || "أخرى"; cats[k] = (cats[k] || 0) + e.amount; });
   const catRows = Object.entries(cats).sort((a, b) => b[1] - a[1]);
   const maxC = catRows.length ? catRows[0][1] : 1;
+  const ccRows = ccSummary(vs.map(e => ({ e }))).filter(x => x.total > 0);
+  const maxCC = ccRows.length ? ccRows[0].total : 1;
   const low = vis.filter(c => { const t = totals(c.id); return t.rec > 0 && t.bal / t.rec < 0.15; });
   const recent = all.filter(e => e.kind === "voucher").sort((a, b) => (b.date + pad(b.seq)).localeCompare(a.date + pad(a.seq))).slice(0, 6);
   const per = [["month", "هذا الشهر"], ["q", "٣ أشهر"], ["year", "هذه السنة"], ["all", "الكل"]];
@@ -62,6 +64,9 @@ function dashHtml() {
       <div style="margin-bottom:10px"><div class="row" style="justify-content:space-between;gap:8px"><span>${esc(k)}</span><span class="amt">${money(v)}</span></div>
       <div class="bar"><i style="width:${Math.max(3, v / maxC * 100)}%"></i></div></div>`).join("") : `<div class="empty">لا توجد سندات في هذه الفترة.</div>`}</div>
   </div>
+  ${S.costCenters.length ? `<div class="card"><h3 style="margin-bottom:10px">المصروف حسب مركز التكلفة</h3>${ccRows.length ? ccRows.map(x => `
+      <div style="margin-bottom:10px"><div class="row" style="justify-content:space-between;gap:8px"><span>${esc(x.name)}</span><span class="amt">${money(x.total)}</span></div>
+      <div class="bar"><i style="width:${Math.max(3, x.total / maxCC * 100)}%"></i></div></div>`).join("") : `<div class="empty">لا توجد سندات في هذه الفترة.</div>`}</div>` : ""}
   <div class="card"><h3>أرصدة العهد</h3><div class="list">${vis.filter(c => sel === "all" || c.id === sel).map(c => {
     const t = totals(c.id), pct = t.rec ? Math.min(100, t.sp / t.rec * 100) : 0, cls = pct > 90 ? "bad" : pct > 75 ? "warn" : "";
     return `<div class="item"><div class="grow"><div class="t">${esc(c.name)}</div><div class="s">${esc(c.holderId ? nameOf(c.holderId) : c.holderLabel || "بدون أمين")}</div>
@@ -114,7 +119,7 @@ function vouchersHtml() {
 function entryRow(e) {
   const c = custodyById(e.custodyId), top = e.kind === "topup", x = e.status === "cancelled";
   return `<div class="item"><div class="grow"><div class="t"><span class="num">${vno(e)}</span> · ${esc(top ? (e.desc || "إضافة مبلغ للعهدة") : (e.beneficiary || e.desc || "سند صرف"))} ${x ? '<span class="pill bad">ملغي</span>' : ""}</div>
-    <div class="s">${esc(c ? c.name : "")}${top ? "" : " · " + esc(e.category || "")} · ${dnum(e.date)}</div></div>
+    <div class="s">${esc(c ? c.name : "")}${top ? "" : " · " + esc(e.category || "") + (e.ccId ? " · " + esc(ccName(e.ccId)) : "")} · ${dnum(e.date)}</div></div>
     <div class="amt ${top ? "good" : "bad"}" ${x ? 'style="text-decoration:line-through;opacity:.6"' : ""}>${top ? "+" : "−"}${money(e.amount)}</div>
     <button class="btn sm" data-act="showv" data-id="${esc(e.id)}">عرض</button></div>`;
 }
@@ -124,7 +129,7 @@ function voucherCard(e) {
   return `<div class="voucher">${x ? '<div class="stamp">ملغي</div>' : ""}
     <div class="row" style="justify-content:space-between"><h3>${top ? "إيصال إضافة مبلغ" : "سند صرف"} <span class="num">${vno(e)}</span></h3><button class="btn sm" data-act="closev">إغلاق</button></div>
     <dl><dt>العهدة</dt><dd>${esc(c ? c.name : "—")}</dd><dt>التاريخ</dt><dd>${dnum(e.date)}</dd><dt>المبلغ</dt><dd>${money(e.amount)}</dd>
-    ${top ? "" : `<dt>المستفيد</dt><dd>${esc(e.beneficiary || "—")}</dd><dt>البند</dt><dd>${esc(e.category || "—")}</dd>`}
+    ${top ? "" : `<dt>المستفيد</dt><dd>${esc(e.beneficiary || "—")}</dd><dt>البند</dt><dd>${esc(e.category || "—")}</dd><dt>مركز التكلفة</dt><dd>${esc(ccName(e.ccId) || "—")}</dd>`}
     <dt>البيان</dt><dd>${esc(e.desc || "—")}</dd><dt>سجّله</dt><dd>${esc(e.byName || nameOf(e.by) || "—")}</dd></dl>
     ${canCancel ? (ui.confirm === e.id
       ? `<div class="row"><span class="sub">سيُستبعد هذا السند من الرصيد ويبقى ظاهراً كملغي.</span><button class="btn sm danger" data-act="cancelv" data-id="${esc(e.id)}">تأكيد الإلغاء</button><button class="btn sm" data-act="noconfirm">تراجع</button></div>`
@@ -165,21 +170,32 @@ function sheetHtml() {
       <div class="field"><label for="f_amt">المبلغ (${CUR})</label><input id="f_amt" name="amount" type="number" min="0.01" step="0.01" inputmode="decimal" required></div>
       <div class="field"><label for="f_date">التاريخ</label><input id="f_date" name="date" type="date" required value="${todayStr()}"></div>
       <div class="field"><label for="f_cat">البند</label><select id="f_cat" name="category">${CATS.map(k => `<option>${esc(k)}</option>`).join("")}</select></div>
+      ${S.costCenters.some(k => k.active) ? `<div class="field"><label for="f_cc">مركز التكلفة</label><select id="f_cc" name="costCenterId"><option value="">— بدون —</option>${S.costCenters.filter(k => k.active).map(k => `<option value="${esc(k.id)}">${esc(ccName(k.id))}</option>`).join("")}</select></div>` : ""}
       <div class="field"><label for="f_ben">المستفيد</label><input id="f_ben" name="beneficiary" maxlength="80" required placeholder="اسم المورد أو الجهة"></div>
       <div class="field"><label for="f_desc">البيان</label><input id="f_desc" name="desc" maxlength="160" placeholder="تفاصيل المصروف"></div>
       <div class="full"><button class="btn primary" type="submit">حفظ السند</button></div></form>`;
   }
   return out;
 }
-function stmtRows(custodyId, from, to) {
+function stmtRows(custodyId, from, to, cc) {
   const all = S.entries.filter(e => e.custodyId === custodyId && e.status !== "cancelled")
     .sort((a, b) => (a.date + pad(a.createdAt || 0, 14) + pad(a.seq)).localeCompare(b.date + pad(b.createdAt || 0, 14) + pad(b.seq)));
   const sgn = e => e.kind === "topup" ? e.amount : -e.amount;
-  const opening = all.filter(e => from && e.date < from).reduce((a, e) => a + sgn(e), 0);
-  const rows = all.filter(e => (!from || e.date >= from) && (!to || e.date <= to));
-  let run = opening, rec = 0, sp = 0;
-  const out = rows.map(e => { run += sgn(e); if (e.kind === "topup") rec += e.amount; else sp += e.amount; return { e, bal: run }; });
-  return { opening, rows: out, rec, sp, closing: run };
+  let bal = 0, opening = 0, rec = 0, sp = 0; const rows = [];
+  for (const e of all) {
+    if (from && e.date < from) { bal += sgn(e); opening = bal; continue; }
+    if (to && e.date > to) break;
+    bal += sgn(e);
+    if (cc === "none" ? e.ccId : (cc && e.ccId !== cc)) continue;
+    if (e.kind === "topup") rec += e.amount; else sp += e.amount;
+    rows.push({ e, bal });
+  }
+  return { opening, rows, rec, sp, closing: bal };
+}
+function ccSummary(rows) {
+  const m = new Map();
+  rows.forEach(({ e }) => { if (e.kind !== "voucher") return; const k = e.ccId || ""; const o = m.get(k) || { name: k ? ccName(k) : "بدون مركز تكلفة", count: 0, total: 0 }; o.count++; o.total += e.amount; m.set(k, o); });
+  return [...m.values()].sort((a, b) => b.total - a.total);
 }
 function stmtCustodyId() {
   const vis = visibleCustodies();
@@ -188,19 +204,25 @@ function stmtCustodyId() {
 function statementHtml() {
   const vis = visibleCustodies();
   if (!vis.length) return `<div class="title"><h2>كشف الحساب</h2></div>` + emptyBlock("لا توجد عهد لعرض كشف حسابها.");
-  const id = stmtCustodyId(), c = custodyById(id), st = stmtRows(id, ui.from, ui.to);
+  const id = stmtCustodyId(), c = custodyById(id), st = stmtRows(id, ui.from, ui.to, ui.stmtCC);
   const cancelled = S.entries.filter(e => e.custodyId === id && e.status === "cancelled").length;
-  return `<div class="title"><h2>كشف حساب العهدة</h2><button class="btn" data-act="csv">تصدير CSV</button></div>
+  const sum = ccSummary(st.rows);
+  return `<div class="title"><h2>كشف حساب العهدة</h2><div class="row">
+      <button class="btn" data-act="printpreview">معاينة الطباعة</button><button class="btn" data-act="xlsx">Excel</button><button class="btn" data-act="pdf">PDF</button></div></div>
   <div class="card form"><div class="field"><label for="sCustody">العهدة</label><select id="sCustody">${custodyOptions(id)}</select></div>
     <div class="field"><label for="sFrom">من تاريخ</label><input id="sFrom" type="date" value="${esc(ui.from)}"></div>
-    <div class="field"><label for="sTo">إلى تاريخ</label><input id="sTo" type="date" value="${esc(ui.to)}"></div></div>
+    <div class="field"><label for="sTo">إلى تاريخ</label><input id="sTo" type="date" value="${esc(ui.to)}"></div>
+    <div class="field"><label for="sCC">مركز التكلفة</label><select id="sCC"><option value="">كل المراكز</option><option value="none"${ui.stmtCC === "none" ? " selected" : ""}>بدون مركز تكلفة</option>${S.costCenters.map(k => `<option value="${esc(k.id)}"${ui.stmtCC === k.id ? " selected" : ""}>${esc(ccName(k.id))}</option>`).join("")}</select></div></div>
   <div class="card"><div class="row" style="justify-content:space-between"><div><h3>${esc(c.name)}</h3><div class="sub">أمين العهدة: ${esc(c.holderId ? nameOf(c.holderId) : c.holderLabel || "—")}</div></div>
     <div style="text-align:end"><div class="sub">الرصيد الختامي</div><div class="amt" style="font-size:22px">${money(st.closing)}</div></div></div></div>
-  <div class="tbl"><table><thead><tr><th>التاريخ</th><th>المرجع</th><th>البيان</th><th>وارد</th><th>منصرف</th><th>الرصيد</th></tr></thead><tbody>
-    <tr><td colspan="5"><b>الرصيد الافتتاحي</b></td><td class="amt">${money(st.opening)}</td></tr>
+  <div class="tbl"><table><thead><tr><th>التاريخ</th><th>المرجع</th><th>البيان</th><th>مركز التكلفة</th><th>وارد</th><th>منصرف</th><th>الرصيد</th></tr></thead><tbody>
+    <tr><td colspan="6"><b>الرصيد الافتتاحي</b></td><td class="amt">${money(st.opening)}</td></tr>
     ${st.rows.map(({ e, bal }) => `<tr><td>${dnum(e.date)}</td><td><span class="num">${vno(e)}</span></td>
       <td class="wrapc">${esc(e.kind === "topup" ? (e.desc || "إضافة مبلغ") : [e.beneficiary, e.desc].filter(Boolean).join(" — ") || "سند صرف")}</td>
+      <td>${esc(ccName(e.ccId))}</td>
       <td class="good">${e.kind === "topup" ? money(e.amount) : ""}</td><td class="bad">${e.kind === "voucher" ? money(e.amount) : ""}</td><td class="amt">${money(bal)}</td></tr>`).join("")}
-    </tbody><tfoot><tr><td colspan="3">الإجمالي</td><td>${money(st.rec)}</td><td>${money(st.sp)}</td><td>${money(st.closing)}</td></tr></tfoot></table></div>
+    </tbody><tfoot><tr><td colspan="4">الإجمالي</td><td>${money(st.rec)}</td><td>${money(st.sp)}</td><td>${money(st.closing)}</td></tr></tfoot></table></div>
+  ${ui.stmtCC ? `<div class="sub">الرصيد في العمود الأخير هو رصيد العهدة الفعلي، وليس مقصوراً على المركز المختار.</div>` : ""}
+  ${sum.length ? `<div class="card"><h3 style="margin-bottom:8px">المصروف حسب مركز التكلفة</h3><div class="list">${sum.map(x => `<div class="item"><div class="grow"><div class="t">${esc(x.name)}</div><div class="s"><span class="num">${x.count}</span> سند</div></div><div class="amt">${money(x.total)}</div></div>`).join("")}</div></div>` : ""}
   ${cancelled ? `<div class="sub">لا يشمل الكشف <span class="num">${cancelled}</span> سنداً ملغياً.</div>` : ""}`;
 }

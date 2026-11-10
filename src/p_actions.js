@@ -52,6 +52,12 @@ async function submitForm(f) {
     if (ok) await refresh(); else render();
     return;
   }
+  if (kind === "cc") {
+    const row = { code: (d.code || "").trim(), name: d.name.trim() };
+    const ok = await run(() => f.dataset.id ? q(sb.from("cost_centers").update(row).eq("id", f.dataset.id)) : q(sb.from("cost_centers").insert(row)), f.dataset.id ? "تم تحديث المركز" : "تمت إضافة المركز");
+    if (ok) { ui.sheet = null; await refresh(); }
+    return;
+  }
   if (kind === "custody") {
     const base = { name: d.name.trim(), holder_id: d.holderId || null, holder_label: d.holderId ? "" : (d.holderLabel || "").trim(), note: (d.note || "").trim() };
     const ok = await run(async () => {
@@ -70,22 +76,9 @@ async function submitForm(f) {
     if (ok) { ui.sheet = null; await refresh(); }
   } else if (kind === "voucher") {
     if (amount > totals(d.custodyId).bal + 0.0001) return toast("المبلغ أكبر من رصيد العهدة المتاح");
-    const ok = await run(() => q(sb.from("entries").insert({ custody_id: d.custodyId, kind: "voucher", amount, entry_date: d.date, category: d.category, beneficiary: d.beneficiary.trim(), description: (d.desc || "").trim() })), "تم حفظ سند الصرف");
+    const ok = await run(() => q(sb.from("entries").insert({ custody_id: d.custodyId, kind: "voucher", amount, entry_date: d.date, category: d.category, cost_center_id: d.costCenterId || null, beneficiary: d.beneficiary.trim(), description: (d.desc || "").trim() })), "تم حفظ سند الصرف");
     if (ok) { ui.sheet = null; await refresh(); }
   }
-}
-function exportCsv() {
-  const id = stmtCustodyId(); if (!id) return;
-  const st = stmtRows(id, ui.from, ui.to), c = custodyById(id);
-  const lines = [["التاريخ", "المرجع", "البيان", "وارد", "منصرف", "الرصيد"]];
-  lines.push(["", "", "الرصيد الافتتاحي", "", "", st.opening.toFixed(2)]);
-  st.rows.forEach(({ e, bal }) => lines.push([e.date, vno(e), e.kind === "topup" ? e.desc || "إضافة مبلغ" : [e.beneficiary, e.desc].filter(Boolean).join(" — "), e.kind === "topup" ? e.amount.toFixed(2) : "", e.kind === "voucher" ? e.amount.toFixed(2) : "", bal.toFixed(2)]));
-  lines.push(["", "", "الإجمالي", st.rec.toFixed(2), st.sp.toFixed(2), st.closing.toFixed(2)]);
-  const blob = new Blob(["﻿" + lines.map(r => r.map(csvCell).join(",")).join("\r\n")], { type: "text/csv;charset=utf-8" });
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob); a.download = "statement-" + (c ? c.cn : "") + "-" + todayStr() + ".csv";
-  document.body.appendChild(a); a.click(); a.remove();
-  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
 }
 async function copyText(t) {
   try { await navigator.clipboard.writeText(t); toast("تم النسخ"); } catch (e) { toast("تعذر النسخ تلقائياً. حدد النص وانسخه."); }
@@ -112,7 +105,17 @@ document.addEventListener("click", async ev => {
   if (a === "noconfirm") { ui.confirm = null; return render(); }
   if (a === "cancelv") { if (await run(() => q(sb.rpc("cancel_entry", { p_id: id })), "تم إلغاء السند")) ui.confirm = null; return refresh(); }
   if (a === "stmt") { ui.stmtCustody = id; return go("statement"); }
-  if (a === "csv") return exportCsv();
+  if (a === "printpreview") return openPrint();
+  if (a === "closeprint") return closePrint();
+  if (a === "doprint") return window.print();
+  if (a === "xlsx") return exportXlsx();
+  if (a === "pdf") return exportPdf(b);
+  if (a === "cctoggle") { const k = ccById(id); if (!k) return; return void (await run(() => q(sb.from("cost_centers").update({ active: !k.active }).eq("id", id)), k.active ? "تم إيقاف المركز" : "تم تفعيل المركز"), await refresh()); }
+  if (a === "ccdel") {
+    if (ui.confirm !== "k:" + id) { ui.confirm = "k:" + id; toast("اضغط مرة أخرى لتأكيد الحذف"); setTimeout(() => { if (ui.confirm === "k:" + id) ui.confirm = null; }, 4000); return; }
+    ui.confirm = null;
+    return void (await run(() => q(sb.from("cost_centers").delete().eq("id", id)), "تم حذف المركز"), await refresh());
+  }
   if (a === "genpw") { const i = $("#u_pass"); if (i) i.value = genPassword(); return; }
   if (a === "closecreated") { ui.created = null; return render(); }
   if (a === "copycreated") { const c = ui.created; if (c) copyText("مرحباً " + c.name + "\nرابط دفتر العهد: " + APP_URL() + "?u=" + c.username + "\nاسم المستخدم: " + c.username + "\nكلمة المرور: " + c.password); return; }
@@ -131,6 +134,7 @@ document.addEventListener("change", async ev => {
   const t = ev.target, i = t.id;
   if (i === "dashCustody" || i === "vCustody") { ui.custody = t.value; render(); }
   else if (i === "sCustody") { ui.stmtCustody = t.value; render(); }
+  else if (i === "sCC") { ui.stmtCC = t.value; render(); }
   else if (i === "sFrom") { ui.from = t.value; render(); }
   else if (i === "sTo") { ui.to = t.value; render(); }
   else if (t.dataset && t.dataset.act === "setrole") {
