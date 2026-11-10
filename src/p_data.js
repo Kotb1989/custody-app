@@ -8,7 +8,7 @@ let sb = null;
 
 const mapP = r => ({ id: r.id, username: r.username, name: r.full_name || r.username, role: r.role, active: r.active !== false });
 const mapC = r => ({ id: r.id, cn: r.cn, name: r.name, holderId: r.holder_id, holderLabel: r.holder_label || "", note: r.note || "" });
-const mapCC = r => ({ id: r.id, code: r.code || "", name: r.name, active: r.active !== false });
+const mapCC = r => ({ id: r.id, code: r.code || "", name: r.name, active: r.active !== false, budget: Number(r.budget) || 0 });
 const mapE = r => ({ ccId: r.cost_center_id || null, id: r.id, custodyId: r.custody_id, kind: r.kind, amount: Number(r.amount), date: r.entry_date, category: r.category || "", beneficiary: r.beneficiary || "", desc: r.description || "", seq: r.seq, status: r.status, by: r.created_by, byName: r.created_by_name || "", createdAt: Date.parse(r.created_at) || 0 });
 
 async function fetchAll(table, col, asc) {

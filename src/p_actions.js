@@ -52,8 +52,24 @@ async function submitForm(f) {
     if (ok) await refresh(); else render();
     return;
   }
+  if (kind === "ccbulk") {
+    const rows = String(d.lines || "").split(/\r?\n/).map(l => l.split(/\t|\|/).map(x => x.trim())).filter(c => c.some(Boolean)).map(c => {
+      const num = x => Number(String(x || "").replace(/,/g, "")) || 0;
+      let code = "", name = c[0], budget = 0;
+      if (c.length === 2) { name = c[0]; budget = num(c[1]); } else if (c.length >= 3) { code = c[0]; name = c[1]; budget = num(c[2]); }
+      const r = { code, name }; if (budget > 0) r.budget = budget; return r;
+    }).filter(r => r.name);
+    if (!rows.length) return toast("لا توجد أسطر صالحة");
+    if (rows.length > 300) return toast("الحد الأقصى ٣٠٠ مركز في المرة");
+    const have = new Set(S.costCenters.map(k => k.name));
+    const fresh = rows.filter(r => !have.has(r.name));
+    if (!fresh.length) return toast("كل هذه المراكز موجودة مسبقاً");
+    if (await run(() => q(sb.from("cost_centers").insert(fresh)), "تمت إضافة " + fresh.length + " مركز" + (rows.length > fresh.length ? " (تم تجاهل المكرر)" : ""))) { ui.sheet = null; await refresh(); }
+    return;
+  }
   if (kind === "cc") {
     const row = { code: (d.code || "").trim(), name: d.name.trim() };
+    const bg = Number(d.budget) || 0; if (bg > 0 || f.dataset.id) row.budget = bg;
     const ok = await run(() => f.dataset.id ? q(sb.from("cost_centers").update(row).eq("id", f.dataset.id)) : q(sb.from("cost_centers").insert(row)), f.dataset.id ? "تم تحديث المركز" : "تمت إضافة المركز");
     if (ok) { ui.sheet = null; await refresh(); }
     return;
@@ -106,6 +122,8 @@ document.addEventListener("click", async ev => {
   if (a === "cancelv") { if (await run(() => q(sb.rpc("cancel_entry", { p_id: id })), "تم إلغاء السند")) ui.confirm = null; return refresh(); }
   if (a === "stmt") { ui.stmtCustody = id; return go("statement"); }
   if (a === "printpreview") return openPrint();
+  if (a === "printv") return openPrintVoucher(id);
+  if (a === "printcc") return openPrintCC();
   if (a === "closeprint") return closePrint();
   if (a === "doprint") return window.print();
   if (a === "xlsx") return exportXlsx();

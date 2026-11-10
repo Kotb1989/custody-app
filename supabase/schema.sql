@@ -290,3 +290,6 @@ revoke all on public.cost_centers from anon;
 grant select, insert, update, delete on public.cost_centers to authenticated;
 revoke all on function public.is_member() from public, anon;
 grant execute on function public.is_member() to authenticated;
+
+-- ميزانية مركز التكلفة
+alter table public.cost_centers add column if not exists budget numeric(14,2) not null default 0;

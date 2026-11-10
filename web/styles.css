@@ -170,3 +170,9 @@ body{margin:0}
   #printLayer .pwrap{padding:0;display:block;overflow:visible}
   .psheet{width:auto;min-height:0;padding:0;box-shadow:none;zoom:1}
 }
+.psheet .pamt{display:flex;justify-content:space-between;align-items:center;background:#eef3f2;border:1.5px solid #0F5257;padding:14px 20px;margin:18px 0}
+.psheet .pamt small{font-size:15px;color:#5a6e6c}.psheet .pamt b{font-size:30px;color:#0F5257}
+.psheet .pvf{display:grid;grid-template-columns:1fr 1fr;gap:0 30px}
+.psheet .pvf>div{display:flex;gap:12px;padding:9px 0;border-bottom:1px solid #dfe7e5}.psheet .pvf b{color:#5a6e6c;min-width:100px}
+.psheet .pstamp{position:absolute;top:120px;left:80px;border:4px solid #b3261e;color:#b3261e;font-size:34px;font-weight:700;padding:2px 22px;transform:rotate(-8deg)}
+.psheet{position:relative}

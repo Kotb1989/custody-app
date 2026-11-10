@@ -127,7 +127,7 @@ function voucherCard(e) {
   const c = custodyById(e.custodyId), top = e.kind === "topup", x = e.status === "cancelled";
   const mine = e.by === S.me.id, canCancel = !x && canWrite() && (isAdminRole() || (mine && !top));
   return `<div class="voucher">${x ? '<div class="stamp">ملغي</div>' : ""}
-    <div class="row" style="justify-content:space-between"><h3>${top ? "إيصال إضافة مبلغ" : "سند صرف"} <span class="num">${vno(e)}</span></h3><button class="btn sm" data-act="closev">إغلاق</button></div>
+    <div class="row" style="justify-content:space-between"><h3>${top ? "إيصال إضافة مبلغ" : "سند صرف"} <span class="num">${vno(e)}</span></h3><span class="row"><button class="btn sm" data-act="printv" data-id="${esc(e.id)}">معاينة الطباعة</button><button class="btn sm" data-act="closev">إغلاق</button></span></div>
     <dl><dt>العهدة</dt><dd>${esc(c ? c.name : "—")}</dd><dt>التاريخ</dt><dd>${dnum(e.date)}</dd><dt>المبلغ</dt><dd>${money(e.amount)}</dd>
     ${top ? "" : `<dt>المستفيد</dt><dd>${esc(e.beneficiary || "—")}</dd><dt>البند</dt><dd>${esc(e.category || "—")}</dd><dt>مركز التكلفة</dt><dd>${esc(ccName(e.ccId) || "—")}</dd>`}
     <dt>البيان</dt><dd>${esc(e.desc || "—")}</dd><dt>سجّله</dt><dd>${esc(e.byName || nameOf(e.by) || "—")}</dd></dl>

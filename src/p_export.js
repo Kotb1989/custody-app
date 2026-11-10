@@ -52,12 +52,48 @@ function printHtml(rep) {
       <div class="psign"><div>أمين العهدة</div><div>المحاسب</div><div>المدير المعتمد</div></div>
     </div></div>`;
 }
-function openPrint() {
-  const rep = reportData(); if (!rep) return toast("لا توجد عهدة لعرضها");
+function showPrint(html) {
   const layer = $("#printLayer");
-  layer.innerHTML = printHtml(rep);
+  layer.innerHTML = html;
   layer.style.setProperty("--pz", String(Math.min(1, (window.innerWidth - 24) / 1122)));
   ui.printOpen = true; render(); window.scrollTo(0, 0);
+}
+function openPrint() {
+  const rep = reportData(); if (!rep) return toast("لا توجد عهدة لعرضها");
+  showPrint(printHtml(rep));
+}
+const ptool = pdf => `<div class="ptool"><button class="btn primary" data-act="doprint">طباعة</button>${pdf ? '<button class="btn" data-act="pdf">تنزيل PDF</button><button class="btn" data-act="xlsx">تنزيل Excel</button>' : ""}<button class="btn" data-act="closeprint">إغلاق</button></div>`;
+function openPrintVoucher(id) {
+  const e = S.entries.find(x => x.id === id); if (!e) return;
+  const c = custodyById(e.custodyId), top = e.kind === "topup", x = e.status === "cancelled";
+  const ref = vno(e);
+  const f = [["العهدة", c ? c.name : "—"], ["أمين العهدة", c ? (c.holderId ? nameOf(c.holderId) : (c.holderLabel || "—")) : "—"], ["التاريخ", e.date]];
+  if (!top) f.push(["المستفيد", e.beneficiary || "—"], ["البند", e.category || "—"], ["مركز التكلفة", ccName(e.ccId) || "—"]);
+  f.push(["البيان", e.desc || "—"], ["سجّله", e.byName || nameOf(e.by) || "—"]);
+  showPrint(ptool(false) + `<div class="pwrap"><div class="psheet" id="psheet">
+    <div class="phead"><h1>${top ? "إيصال إضافة مبلغ" : "سند صرف"}</h1><div class="pbrand">رقم: <span class="num">${esc(ref)}</span></div></div>
+    ${x ? '<div class="pstamp">ملغي</div>' : ""}
+    <div class="pamt"><small>المبلغ</small><b><span class="num">${fmt(e.amount)}</span> ${CUR}</b></div>
+    <div class="pvf">${f.map(([k, v]) => `<div><b>${k}</b><span>${k === "التاريخ" ? `<span class="num">${esc(v)}</span>` : esc(v)}</span></div>`).join("")}</div>
+    <div class="psign">${(top ? ["المحاسب", "المدير المعتمد"] : ["المستلم", "أمين العهدة", "المحاسب", "المدير المعتمد"]).map(s => `<div>${s}</div>`).join("")}</div>
+    <div class="pnote">طُبع بتاريخ ${nowStamp()}${S.me && S.me.name ? " — " + esc(S.me.name) : ""}</div></div></div>`);
+}
+function openPrintCC() {
+  const [from, to] = periodRange(ui.period);
+  const per = { month: "هذا الشهر", q: "آخر ٣ أشهر", year: "هذه السنة", all: "كل الفترات" }[ui.period] || "";
+  const inP = new Map();
+  S.entries.forEach(e => { if (e.kind !== "voucher" || e.status === "cancelled" || e.date < from || e.date >= to) return; const k = e.ccId || ""; inP.set(k, (inP.get(k) || 0) + e.amount); });
+  const n = v => `<span class="num">${fmt(v)}</span>`;
+  const list = S.costCenters.map(k => ({ name: ccName(k.id), budget: k.budget, p: inP.get(k.id) || 0, all: ccSpent(k.id), off: !k.active }));
+  if (inP.get("")) list.push({ name: "بدون مركز تكلفة", budget: 0, p: inP.get(""), all: S.entries.reduce((a, e) => a + (e.kind === "voucher" && e.status !== "cancelled" && !e.ccId ? e.amount : 0), 0) });
+  const tb = list.reduce((a, x) => a + x.budget, 0), tp = list.reduce((a, x) => a + x.p, 0), ta = list.reduce((a, x) => a + x.all, 0);
+  showPrint(ptool(false) + `<div class="pwrap"><div class="psheet" id="psheet">
+    <div class="phead"><h1>تقرير مراكز التكلفة</h1><div class="pbrand">دفتر العهد</div></div>
+    <div class="pmeta"><div><b>الفترة:</b><span>${per}</span></div><div><b>تاريخ الطباعة:</b><span>${nowStamp()}</span></div><div><b>أعدّه:</b><span>${esc(S.me ? S.me.name : "")}</span></div></div>
+    <table class="pt"><thead><tr><th>مركز التكلفة</th><th>الميزانية</th><th>مصروف الفترة</th><th>إجمالي المصروف</th><th>المتبقي</th><th>النسبة</th></tr></thead><tbody>
+    ${list.map(x => `<tr><td>${esc(x.name)}${x.off ? " (موقوف)" : ""}</td><td class="n">${x.budget ? n(x.budget) : ""}</td><td class="n">${n(x.p)}</td><td class="n">${n(x.all)}</td><td class="n">${x.budget ? n(x.budget - x.all) : ""}</td><td class="n">${x.budget ? Math.round(x.all / x.budget * 100) + "%" : ""}</td></tr>`).join("")}
+    </tbody><tfoot><tr><td>الإجمالي</td><td class="n">${n(tb)}</td><td class="n">${n(tp)}</td><td class="n">${n(ta)}</td><td class="n">${tb ? n(tb - ta) : ""}</td><td></td></tr></tfoot></table>
+    <div class="pnote">الإجمالي والمتبقي يحسبان كل سندات الصرف غير الملغاة للمركز، ومصروف الفترة يخص الفترة المختارة فقط.</div></div></div>`);
 }
 function closePrint() { ui.printOpen = false; $("#printLayer").innerHTML = ""; render(); }
 

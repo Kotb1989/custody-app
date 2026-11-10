@@ -24,6 +24,8 @@
 
 > **تحديث مراكز التكلفة:** إن كنت شغّلت `schema.sql` سابقاً فشغّل الآن ملف `supabase/migration_002_cost_centers.sql` مرة واحدة من SQL Editor. (المشروع الجديد لا يحتاجه لأنه مدمج في schema.sql.)
 
+> **تحديث الميزانية:** شغّل أيضاً `supabase/migration_003_cc_budget.sql` مرة واحدة إن كان مشروعك قديماً.
+
 ### ٣) ضبط تسجيل الدخول
 من **Authentication → Sign In / Providers → Email**:
 - عطّل **Confirm email** (ضروري، لأن المستخدمين يدخلون بأسماء مستخدمين وليس ببريد حقيقي).

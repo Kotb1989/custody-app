@@ -30,6 +30,7 @@ const isAdminRole = () => roleOf() === "admin";
 const canWrite = () => true;
 const nameOf = id => (id && S.profiles[id] && S.profiles[id].name) || (id ? "مستخدم" : "");
 const custodyById = id => S.custodies.find(c => c.id === id);
+const ccSpent = id => S.entries.reduce((a, e) => a + (e.kind === "voucher" && e.status !== "cancelled" && e.ccId === id ? e.amount : 0), 0);
 const ccById = id => S.costCenters.find(c => c.id === id);
 const ccName = id => { const c = id && ccById(id); return c ? (c.code ? c.code + " - " : "") + c.name : ""; };
 const visibleCustodies = () => {

@@ -32,6 +32,7 @@ const isAdminRole = () => roleOf() === "admin";
 const canWrite = () => true;
 const nameOf = id => (id && S.profiles[id] && S.profiles[id].name) || (id ? "مستخدم" : "");
 const custodyById = id => S.custodies.find(c => c.id === id);
+const ccSpent = id => S.entries.reduce((a, e) => a + (e.kind === "voucher" && e.status !== "cancelled" && e.ccId === id ? e.amount : 0), 0);
 const ccById = id => S.costCenters.find(c => c.id === id);
 const ccName = id => { const c = id && ccById(id); return c ? (c.code ? c.code + " - " : "") + c.name : ""; };
 const visibleCustodies = () => {
@@ -97,7 +98,7 @@ let sb = null;
 
 const mapP = r => ({ id: r.id, username: r.username, name: r.full_name || r.username, role: r.role, active: r.active !== false });
 const mapC = r => ({ id: r.id, cn: r.cn, name: r.name, holderId: r.holder_id, holderLabel: r.holder_label || "", note: r.note || "" });
-const mapCC = r => ({ id: r.id, code: r.code || "", name: r.name, active: r.active !== false });
+const mapCC = r => ({ id: r.id, code: r.code || "", name: r.name, active: r.active !== false, budget: Number(r.budget) || 0 });
 const mapE = r => ({ ccId: r.cost_center_id || null, id: r.id, custodyId: r.custody_id, kind: r.kind, amount: Number(r.amount), date: r.entry_date, category: r.category || "", beneficiary: r.beneficiary || "", desc: r.description || "", seq: r.seq, status: r.status, by: r.created_by, byName: r.created_by_name || "", createdAt: Date.parse(r.created_at) || 0 });
 
 async function fetchAll(table, col, asc) {
@@ -302,7 +303,7 @@ function voucherCard(e) {
   const c = custodyById(e.custodyId), top = e.kind === "topup", x = e.status === "cancelled";
   const mine = e.by === S.me.id, canCancel = !x && canWrite() && (isAdminRole() || (mine && !top));
   return `<div class="voucher">${x ? '<div class="stamp">ملغي</div>' : ""}
-    <div class="row" style="justify-content:space-between"><h3>${top ? "إيصال إضافة مبلغ" : "سند صرف"} <span class="num">${vno(e)}</span></h3><button class="btn sm" data-act="closev">إغلاق</button></div>
+    <div class="row" style="justify-content:space-between"><h3>${top ? "إيصال إضافة مبلغ" : "سند صرف"} <span class="num">${vno(e)}</span></h3><span class="row"><button class="btn sm" data-act="printv" data-id="${esc(e.id)}">معاينة الطباعة</button><button class="btn sm" data-act="closev">إغلاق</button></span></div>
     <dl><dt>العهدة</dt><dd>${esc(c ? c.name : "—")}</dd><dt>التاريخ</dt><dd>${dnum(e.date)}</dd><dt>المبلغ</dt><dd>${money(e.amount)}</dd>
     ${top ? "" : `<dt>المستفيد</dt><dd>${esc(e.beneficiary || "—")}</dd><dt>البند</dt><dd>${esc(e.category || "—")}</dd><dt>مركز التكلفة</dt><dd>${esc(ccName(e.ccId) || "—")}</dd>`}
     <dt>البيان</dt><dd>${esc(e.desc || "—")}</dd><dt>سجّله</dt><dd>${esc(e.byName || nameOf(e.by) || "—")}</dd></dl>
@@ -456,12 +457,48 @@ function printHtml(rep) {
       <div class="psign"><div>أمين العهدة</div><div>المحاسب</div><div>المدير المعتمد</div></div>
     </div></div>`;
 }
-function openPrint() {
-  const rep = reportData(); if (!rep) return toast("لا توجد عهدة لعرضها");
+function showPrint(html) {
   const layer = $("#printLayer");
-  layer.innerHTML = printHtml(rep);
+  layer.innerHTML = html;
   layer.style.setProperty("--pz", String(Math.min(1, (window.innerWidth - 24) / 1122)));
   ui.printOpen = true; render(); window.scrollTo(0, 0);
+}
+function openPrint() {
+  const rep = reportData(); if (!rep) return toast("لا توجد عهدة لعرضها");
+  showPrint(printHtml(rep));
+}
+const ptool = pdf => `<div class="ptool"><button class="btn primary" data-act="doprint">طباعة</button>${pdf ? '<button class="btn" data-act="pdf">تنزيل PDF</button><button class="btn" data-act="xlsx">تنزيل Excel</button>' : ""}<button class="btn" data-act="closeprint">إغلاق</button></div>`;
+function openPrintVoucher(id) {
+  const e = S.entries.find(x => x.id === id); if (!e) return;
+  const c = custodyById(e.custodyId), top = e.kind === "topup", x = e.status === "cancelled";
+  const ref = vno(e);
+  const f = [["العهدة", c ? c.name : "—"], ["أمين العهدة", c ? (c.holderId ? nameOf(c.holderId) : (c.holderLabel || "—")) : "—"], ["التاريخ", e.date]];
+  if (!top) f.push(["المستفيد", e.beneficiary || "—"], ["البند", e.category || "—"], ["مركز التكلفة", ccName(e.ccId) || "—"]);
+  f.push(["البيان", e.desc || "—"], ["سجّله", e.byName || nameOf(e.by) || "—"]);
+  showPrint(ptool(false) + `<div class="pwrap"><div class="psheet" id="psheet">
+    <div class="phead"><h1>${top ? "إيصال إضافة مبلغ" : "سند صرف"}</h1><div class="pbrand">رقم: <span class="num">${esc(ref)}</span></div></div>
+    ${x ? '<div class="pstamp">ملغي</div>' : ""}
+    <div class="pamt"><small>المبلغ</small><b><span class="num">${fmt(e.amount)}</span> ${CUR}</b></div>
+    <div class="pvf">${f.map(([k, v]) => `<div><b>${k}</b><span>${k === "التاريخ" ? `<span class="num">${esc(v)}</span>` : esc(v)}</span></div>`).join("")}</div>
+    <div class="psign">${(top ? ["المحاسب", "المدير المعتمد"] : ["المستلم", "أمين العهدة", "المحاسب", "المدير المعتمد"]).map(s => `<div>${s}</div>`).join("")}</div>
+    <div class="pnote">طُبع بتاريخ ${nowStamp()}${S.me && S.me.name ? " — " + esc(S.me.name) : ""}</div></div></div>`);
+}
+function openPrintCC() {
+  const [from, to] = periodRange(ui.period);
+  const per = { month: "هذا الشهر", q: "آخر ٣ أشهر", year: "هذه السنة", all: "كل الفترات" }[ui.period] || "";
+  const inP = new Map();
+  S.entries.forEach(e => { if (e.kind !== "voucher" || e.status === "cancelled" || e.date < from || e.date >= to) return; const k = e.ccId || ""; inP.set(k, (inP.get(k) || 0) + e.amount); });
+  const n = v => `<span class="num">${fmt(v)}</span>`;
+  const list = S.costCenters.map(k => ({ name: ccName(k.id), budget: k.budget, p: inP.get(k.id) || 0, all: ccSpent(k.id), off: !k.active }));
+  if (inP.get("")) list.push({ name: "بدون مركز تكلفة", budget: 0, p: inP.get(""), all: S.entries.reduce((a, e) => a + (e.kind === "voucher" && e.status !== "cancelled" && !e.ccId ? e.amount : 0), 0) });
+  const tb = list.reduce((a, x) => a + x.budget, 0), tp = list.reduce((a, x) => a + x.p, 0), ta = list.reduce((a, x) => a + x.all, 0);
+  showPrint(ptool(false) + `<div class="pwrap"><div class="psheet" id="psheet">
+    <div class="phead"><h1>تقرير مراكز التكلفة</h1><div class="pbrand">دفتر العهد</div></div>
+    <div class="pmeta"><div><b>الفترة:</b><span>${per}</span></div><div><b>تاريخ الطباعة:</b><span>${nowStamp()}</span></div><div><b>أعدّه:</b><span>${esc(S.me ? S.me.name : "")}</span></div></div>
+    <table class="pt"><thead><tr><th>مركز التكلفة</th><th>الميزانية</th><th>مصروف الفترة</th><th>إجمالي المصروف</th><th>المتبقي</th><th>النسبة</th></tr></thead><tbody>
+    ${list.map(x => `<tr><td>${esc(x.name)}${x.off ? " (موقوف)" : ""}</td><td class="n">${x.budget ? n(x.budget) : ""}</td><td class="n">${n(x.p)}</td><td class="n">${n(x.all)}</td><td class="n">${x.budget ? n(x.budget - x.all) : ""}</td><td class="n">${x.budget ? Math.round(x.all / x.budget * 100) + "%" : ""}</td></tr>`).join("")}
+    </tbody><tfoot><tr><td>الإجمالي</td><td class="n">${n(tb)}</td><td class="n">${n(tp)}</td><td class="n">${n(ta)}</td><td class="n">${tb ? n(tb - ta) : ""}</td><td></td></tr></tfoot></table>
+    <div class="pnote">الإجمالي والمتبقي يحسبان كل سندات الصرف غير الملغاة للمركز، ومصروف الفترة يخص الفترة المختارة فقط.</div></div></div>`);
 }
 function closePrint() { ui.printOpen = false; $("#printLayer").innerHTML = ""; render(); }
 
@@ -671,7 +708,14 @@ function sheetHtml2() {
     return `<form class="card form" data-form="cc" data-id="${esc(k ? k.id : "")}"><div class="full title"><h3>${k ? "تعديل مركز التكلفة" : "مركز تكلفة جديد"}</h3><button type="button" class="btn sm" data-act="closesheet">إغلاق</button></div>
       <div class="field"><label for="k_code">الرمز (اختياري)</label><input id="k_code" name="code" maxlength="20" value="${esc(k ? k.code : "")}" placeholder="مثال: P-101" style="direction:ltr"></div>
       <div class="field"><label for="k_name">اسم المركز</label><input id="k_name" name="name" required maxlength="80" value="${esc(k ? k.name : "")}" placeholder="مثال: مشروع برج الواحة"></div>
+      <div class="field"><label for="k_budget">الميزانية (اختياري)</label><input id="k_budget" name="budget" type="number" min="0" step="0.01" inputmode="decimal" value="${k && k.budget ? k.budget : ""}" style="direction:ltr"></div>
       <div class="full"><button class="btn primary" type="submit">حفظ</button></div></form>`;
+  }
+  if (ui.sheet && ui.sheet.type === "ccbulk") {
+    return `<form class="card form" data-form="ccbulk"><div class="full title"><h3>إضافة عدة مراكز دفعة واحدة</h3><button type="button" class="btn sm" data-act="closesheet">إغلاق</button></div>
+      <div class="field full"><label for="k_bulk">سطر لكل مركز</label><textarea id="k_bulk" name="lines" rows="8" required placeholder="الاسم&#9;الميزانية&#10;حديد تسليح&#9;365640&#10;خرسانة&#9;164720"></textarea>
+      <div class="sub">الأعمدة: الاسم فقط، أو الاسم ثم الميزانية، أو الرمز ثم الاسم ثم الميزانية. افصل بين الأعمدة بعلامة Tab (النسخ من Excel) أو بالرمز |</div></div>
+      <div class="full"><button class="btn primary" type="submit">إضافة المراكز</button></div></form>`;
   }
   if (ui.sheet && ui.sheet.type === "pw") {
     return `<form class="card form" data-form="pw"><div class="full title"><h3>تغيير كلمة المرور</h3><button type="button" class="btn sm" data-act="closesheet">إغلاق</button></div>
@@ -695,18 +739,21 @@ function costCentersHtml() {
   vs.forEach(e => { const k = e.ccId || ""; const o = sum.get(k) || { count: 0, total: 0 }; o.count++; o.total += e.amount; sum.set(k, o); });
   const max = Math.max(1, ...[...sum.values()].map(x => x.total));
   const per = [["month", "هذا الشهر"], ["q", "٣ أشهر"], ["year", "هذه السنة"], ["all", "الكل"]];
-  const row = (name, x, extra, badge) => `<div class="item"><div class="grow"><div class="t">${esc(name)} ${badge || ""}</div><div class="s"><span class="num">${x.count}</span> سند</div>
-      <div class="bar" style="margin-top:6px"><i style="width:${x.total ? Math.max(3, x.total / max * 100) : 0}%"></i></div></div><div class="amt">${money(x.total)}</div>${extra || ""}</div>`;
+  const row = (name, x, extra, badge, budget, all) => {
+    const hasB = budget > 0, pct = hasB ? all / budget * 100 : 0, w = hasB ? Math.min(100, pct) : (x.total ? Math.max(3, x.total / max * 100) : 0);
+    return `<div class="item"><div class="grow"><div class="t">${esc(name)} ${badge || ""}</div><div class="s"><span class="num">${x.count}</span> سند${hasB ? ` · الميزانية <span class="num">${fmt(budget)}</span> · المتبقي <span class="num">${fmt(budget - all)}</span> (<span class="num">${Math.round(pct)}%</span>)` : ""}</div>
+      <div class="bar${hasB && pct > 100 ? " bad" : hasB && pct > 80 ? " warn" : ""}" style="margin-top:6px"><i style="width:${w}%"></i></div></div><div class="amt">${money(hasB ? all : x.total)}</div>${extra || ""}</div>`;
+  };
   const un = sum.get("");
-  return `<div class="title"><h2>مراكز التكلفة</h2><button class="btn primary" data-act="sheet" data-type="cc">مركز جديد</button></div>
+  return `<div class="title"><h2>مراكز التكلفة</h2><span class="row"><button class="btn" data-act="printcc">معاينة الطباعة</button><button class="btn" data-act="sheet" data-type="ccbulk">إضافة دفعة</button><button class="btn primary" data-act="sheet" data-type="cc">مركز جديد</button></span></div>
   <div class="chips" role="group" aria-label="الفترة">${per.map(([k, l]) => `<button class="chip" data-act="period" data-p="${k}" aria-pressed="${ui.period === k}">${l}</button>`).join("")}</div>
   <div class="card">${S.costCenters.length || un ? `<div class="list">${S.costCenters.map(k => {
     const used = S.entries.some(e => e.ccId === k.id);
     return row(ccName(k.id), sum.get(k.id) || { count: 0, total: 0 },
       `<button class="btn sm" data-act="sheet" data-type="cc" data-id="${esc(k.id)}">تعديل</button><button class="btn sm" data-act="cctoggle" data-id="${esc(k.id)}">${k.active ? "إيقاف" : "تفعيل"}</button>${used ? "" : `<button class="btn sm danger" data-act="ccdel" data-id="${esc(k.id)}">حذف</button>`}`,
-      k.active ? "" : '<span class="pill warn">موقوف</span>');
+      k.active ? "" : '<span class="pill warn">موقوف</span>', k.budget, ccSpent(k.id));
   }).join("")}${un ? row("بدون مركز تكلفة", un) : ""}</div>` : `<div class="empty">لا توجد مراكز تكلفة بعد. أضف مراكز مثل المشاريع أو الأقسام، ثم يختارها أمناء العهد عند تسجيل السند.</div>`}</div>
-  <div class="sub">يحسب التقرير سندات الصرف غير الملغاة في الفترة المختارة. المركز الموقوف لا يظهر في نموذج السند لكن تبقى سنداته القديمة محسوبة.</div>`;
+  <div class="sub">عند تحديد ميزانية للمركز يُقارن بها إجمالي مصروفه كله (وليس الفترة فقط). يحسب التقرير سندات الصرف غير الملغاة في الفترة المختارة. المركز الموقوف لا يظهر في نموذج السند لكن تبقى سنداته القديمة محسوبة.</div>`;
 }
 
 let rendering = false;
@@ -819,8 +866,24 @@ async function submitForm(f) {
     if (ok) await refresh(); else render();
     return;
   }
+  if (kind === "ccbulk") {
+    const rows = String(d.lines || "").split(/\r?\n/).map(l => l.split(/\t|\|/).map(x => x.trim())).filter(c => c.some(Boolean)).map(c => {
+      const num = x => Number(String(x || "").replace(/,/g, "")) || 0;
+      let code = "", name = c[0], budget = 0;
+      if (c.length === 2) { name = c[0]; budget = num(c[1]); } else if (c.length >= 3) { code = c[0]; name = c[1]; budget = num(c[2]); }
+      const r = { code, name }; if (budget > 0) r.budget = budget; return r;
+    }).filter(r => r.name);
+    if (!rows.length) return toast("لا توجد أسطر صالحة");
+    if (rows.length > 300) return toast("الحد الأقصى ٣٠٠ مركز في المرة");
+    const have = new Set(S.costCenters.map(k => k.name));
+    const fresh = rows.filter(r => !have.has(r.name));
+    if (!fresh.length) return toast("كل هذه المراكز موجودة مسبقاً");
+    if (await run(() => q(sb.from("cost_centers").insert(fresh)), "تمت إضافة " + fresh.length + " مركز" + (rows.length > fresh.length ? " (تم تجاهل المكرر)" : ""))) { ui.sheet = null; await refresh(); }
+    return;
+  }
   if (kind === "cc") {
     const row = { code: (d.code || "").trim(), name: d.name.trim() };
+    const bg = Number(d.budget) || 0; if (bg > 0 || f.dataset.id) row.budget = bg;
     const ok = await run(() => f.dataset.id ? q(sb.from("cost_centers").update(row).eq("id", f.dataset.id)) : q(sb.from("cost_centers").insert(row)), f.dataset.id ? "تم تحديث المركز" : "تمت إضافة المركز");
     if (ok) { ui.sheet = null; await refresh(); }
     return;
@@ -873,6 +936,8 @@ document.addEventListener("click", async ev => {
   if (a === "cancelv") { if (await run(() => q(sb.rpc("cancel_entry", { p_id: id })), "تم إلغاء السند")) ui.confirm = null; return refresh(); }
   if (a === "stmt") { ui.stmtCustody = id; return go("statement"); }
   if (a === "printpreview") return openPrint();
+  if (a === "printv") return openPrintVoucher(id);
+  if (a === "printcc") return openPrintCC();
   if (a === "closeprint") return closePrint();
   if (a === "doprint") return window.print();
   if (a === "xlsx") return exportXlsx();

@@ -39,7 +39,14 @@ function sheetHtml2() {
     return `<form class="card form" data-form="cc" data-id="${esc(k ? k.id : "")}"><div class="full title"><h3>${k ? "تعديل مركز التكلفة" : "مركز تكلفة جديد"}</h3><button type="button" class="btn sm" data-act="closesheet">إغلاق</button></div>
       <div class="field"><label for="k_code">الرمز (اختياري)</label><input id="k_code" name="code" maxlength="20" value="${esc(k ? k.code : "")}" placeholder="مثال: P-101" style="direction:ltr"></div>
       <div class="field"><label for="k_name">اسم المركز</label><input id="k_name" name="name" required maxlength="80" value="${esc(k ? k.name : "")}" placeholder="مثال: مشروع برج الواحة"></div>
+      <div class="field"><label for="k_budget">الميزانية (اختياري)</label><input id="k_budget" name="budget" type="number" min="0" step="0.01" inputmode="decimal" value="${k && k.budget ? k.budget : ""}" style="direction:ltr"></div>
       <div class="full"><button class="btn primary" type="submit">حفظ</button></div></form>`;
+  }
+  if (ui.sheet && ui.sheet.type === "ccbulk") {
+    return `<form class="card form" data-form="ccbulk"><div class="full title"><h3>إضافة عدة مراكز دفعة واحدة</h3><button type="button" class="btn sm" data-act="closesheet">إغلاق</button></div>
+      <div class="field full"><label for="k_bulk">سطر لكل مركز</label><textarea id="k_bulk" name="lines" rows="8" required placeholder="الاسم&#9;الميزانية&#10;حديد تسليح&#9;365640&#10;خرسانة&#9;164720"></textarea>
+      <div class="sub">الأعمدة: الاسم فقط، أو الاسم ثم الميزانية، أو الرمز ثم الاسم ثم الميزانية. افصل بين الأعمدة بعلامة Tab (النسخ من Excel) أو بالرمز |</div></div>
+      <div class="full"><button class="btn primary" type="submit">إضافة المراكز</button></div></form>`;
   }
   if (ui.sheet && ui.sheet.type === "pw") {
     return `<form class="card form" data-form="pw"><div class="full title"><h3>تغيير كلمة المرور</h3><button type="button" class="btn sm" data-act="closesheet">إغلاق</button></div>
@@ -63,18 +70,21 @@ function costCentersHtml() {
   vs.forEach(e => { const k = e.ccId || ""; const o = sum.get(k) || { count: 0, total: 0 }; o.count++; o.total += e.amount; sum.set(k, o); });
   const max = Math.max(1, ...[...sum.values()].map(x => x.total));
   const per = [["month", "هذا الشهر"], ["q", "٣ أشهر"], ["year", "هذه السنة"], ["all", "الكل"]];
-  const row = (name, x, extra, badge) => `<div class="item"><div class="grow"><div class="t">${esc(name)} ${badge || ""}</div><div class="s"><span class="num">${x.count}</span> سند</div>
-      <div class="bar" style="margin-top:6px"><i style="width:${x.total ? Math.max(3, x.total / max * 100) : 0}%"></i></div></div><div class="amt">${money(x.total)}</div>${extra || ""}</div>`;
+  const row = (name, x, extra, badge, budget, all) => {
+    const hasB = budget > 0, pct = hasB ? all / budget * 100 : 0, w = hasB ? Math.min(100, pct) : (x.total ? Math.max(3, x.total / max * 100) : 0);
+    return `<div class="item"><div class="grow"><div class="t">${esc(name)} ${badge || ""}</div><div class="s"><span class="num">${x.count}</span> سند${hasB ? ` · الميزانية <span class="num">${fmt(budget)}</span> · المتبقي <span class="num">${fmt(budget - all)}</span> (<span class="num">${Math.round(pct)}%</span>)` : ""}</div>
+      <div class="bar${hasB && pct > 100 ? " bad" : hasB && pct > 80 ? " warn" : ""}" style="margin-top:6px"><i style="width:${w}%"></i></div></div><div class="amt">${money(hasB ? all : x.total)}</div>${extra || ""}</div>`;
+  };
   const un = sum.get("");
-  return `<div class="title"><h2>مراكز التكلفة</h2><button class="btn primary" data-act="sheet" data-type="cc">مركز جديد</button></div>
+  return `<div class="title"><h2>مراكز التكلفة</h2><span class="row"><button class="btn" data-act="printcc">معاينة الطباعة</button><button class="btn" data-act="sheet" data-type="ccbulk">إضافة دفعة</button><button class="btn primary" data-act="sheet" data-type="cc">مركز جديد</button></span></div>
   <div class="chips" role="group" aria-label="الفترة">${per.map(([k, l]) => `<button class="chip" data-act="period" data-p="${k}" aria-pressed="${ui.period === k}">${l}</button>`).join("")}</div>
   <div class="card">${S.costCenters.length || un ? `<div class="list">${S.costCenters.map(k => {
     const used = S.entries.some(e => e.ccId === k.id);
     return row(ccName(k.id), sum.get(k.id) || { count: 0, total: 0 },
       `<button class="btn sm" data-act="sheet" data-type="cc" data-id="${esc(k.id)}">تعديل</button><button class="btn sm" data-act="cctoggle" data-id="${esc(k.id)}">${k.active ? "إيقاف" : "تفعيل"}</button>${used ? "" : `<button class="btn sm danger" data-act="ccdel" data-id="${esc(k.id)}">حذف</button>`}`,
-      k.active ? "" : '<span class="pill warn">موقوف</span>');
+      k.active ? "" : '<span class="pill warn">موقوف</span>', k.budget, ccSpent(k.id));
   }).join("")}${un ? row("بدون مركز تكلفة", un) : ""}</div>` : `<div class="empty">لا توجد مراكز تكلفة بعد. أضف مراكز مثل المشاريع أو الأقسام، ثم يختارها أمناء العهد عند تسجيل السند.</div>`}</div>
-  <div class="sub">يحسب التقرير سندات الصرف غير الملغاة في الفترة المختارة. المركز الموقوف لا يظهر في نموذج السند لكن تبقى سنداته القديمة محسوبة.</div>`;
+  <div class="sub">عند تحديد ميزانية للمركز يُقارن بها إجمالي مصروفه كله (وليس الفترة فقط). يحسب التقرير سندات الصرف غير الملغاة في الفترة المختارة. المركز الموقوف لا يظهر في نموذج السند لكن تبقى سنداته القديمة محسوبة.</div>`;
 }
 
 let rendering = false;
